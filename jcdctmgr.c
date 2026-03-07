@@ -942,9 +942,9 @@ gibbs_use_ac_fast_path(j_compress_ptr cinfo)
 }
 
 LOCAL(boolean)
-gibbs_is_low_value_block(j_compress_ptr cinfo, JBLOCKROW src,
-                         JBLOCKROW src_above, JDIMENSION num_blocks,
-                         JDIMENSION bi, JQUANT_TBL *qtbl)
+gibbs_is_persistent_tail_block(j_compress_ptr cinfo, JBLOCKROW src,
+                               JBLOCKROW src_above, JDIMENSION num_blocks,
+                               JDIMENSION bi, JQUANT_TBL *qtbl)
 {
   int dc_here = src[bi][0];
   int cliff_delta = 0;
@@ -1004,7 +1004,7 @@ gibbs_is_low_value_block(j_compress_ptr cinfo, JBLOCKROW src,
     return FALSE;
 
   tail_ratio = tail_sum / (r16 + 1.0e-9);
-  return tail_ratio <= cinfo->master->gibbs_threshold &&
+  return tail_ratio >= cinfo->master->gibbs_threshold &&
          tail_flips >= cinfo->master->gibbs_tail_min_flips &&
          tail_activity <= cinfo->master->gibbs_tail_activity_max;
 }
@@ -1048,7 +1048,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
   int mode = 1;
   float lambda_table[DCTSIZE2];
   boolean use_gibbs_ac_fast_path;
-  boolean gibbs_low_value_block;
+  boolean gibbs_persistent_tail_block;
   const int dc_trellis_candidates = get_num_dc_trellis_candidates(qtbl->quantval[0]);
   
   Ss = cinfo->Ss;
@@ -1197,11 +1197,11 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       }
     }
 
-    gibbs_low_value_block = FALSE;
+    gibbs_persistent_tail_block = FALSE;
     if (use_gibbs_ac_fast_path) {
-      gibbs_low_value_block =
-        gibbs_is_low_value_block(cinfo, src, src_above, num_blocks,
-                                 (JDIMENSION)bi, qtbl);
+      gibbs_persistent_tail_block =
+        gibbs_is_persistent_tail_block(cinfo, src, src_above, num_blocks,
+                                       (JDIMENSION)bi, qtbl);
     }
 
     /* Do AC coefficients */
@@ -1239,8 +1239,13 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         candidate_dist[k] = delta * delta * lambda * lambda_tbl[z];
       }
 
-      if (gibbs_low_value_block && i >= 17 && i <= 32 && num_candidates > 2)
-        num_candidates = 2;
+      if (gibbs_persistent_tail_block && i >= 9 && i <= 32 &&
+          num_candidates > 1) {
+        candidate[0] = candidate[num_candidates - 1];
+        candidate_bits[0] = candidate_bits[num_candidates - 1];
+        candidate_dist[0] = candidate_dist[num_candidates - 1];
+        num_candidates = 1;
+      }
       
       accumulated_cost[i] = 1e38;
       
@@ -1451,7 +1456,7 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
   int mode = 1;
   float lambda_table[DCTSIZE2];
   boolean use_gibbs_ac_fast_path;
-  boolean gibbs_low_value_block;
+  boolean gibbs_persistent_tail_block;
   const int dc_trellis_candidates = get_num_dc_trellis_candidates(qtbl->quantval[0]);
   
   Ss = cinfo->Ss;
@@ -1604,11 +1609,11 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
       }
     }
 
-    gibbs_low_value_block = FALSE;
+    gibbs_persistent_tail_block = FALSE;
     if (use_gibbs_ac_fast_path) {
-      gibbs_low_value_block =
-        gibbs_is_low_value_block(cinfo, src, src_above, num_blocks,
-                                 (JDIMENSION)bi, qtbl);
+      gibbs_persistent_tail_block =
+        gibbs_is_persistent_tail_block(cinfo, src, src_above, num_blocks,
+                                       (JDIMENSION)bi, qtbl);
     }
     
     /* Do AC coefficients */
@@ -1647,7 +1652,8 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
       }
       num_candidates = k;
 
-      if (gibbs_low_value_block && i >= 17 && i <= 32 && num_candidates > 1) {
+      if (gibbs_persistent_tail_block && i >= 25 && i <= 32 &&
+          num_candidates > 1) {
         candidate[0] = candidate[num_candidates - 1];
         candidate_dist[0] = candidate_dist[num_candidates - 1];
         num_candidates = 1;
