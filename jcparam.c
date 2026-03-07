@@ -516,6 +516,13 @@ jpeg_set_defaults(j_compress_ptr cinfo)
   cinfo->master->trellis_q_opt = FALSE;
   cinfo->master->trellis_quant_dc = TRUE;
   cinfo->master->trellis_delta_dc_weight = 0.0;
+
+  cinfo->master->gibbs_guarded_trellis = FALSE;
+  cinfo->master->gibbs_threshold = 0.18;
+  cinfo->master->gibbs_cliff_min = 1.0;
+  cinfo->master->gibbs_tail_min_flips = 2;
+  cinfo->master->gibbs_tail_activity_max = 3;
+  cinfo->master->gibbs_low_trellis_loops = 0;
 }
 
 

@@ -132,6 +132,14 @@ struct jpeg_comp_master {
   
   float trellis_delta_dc_weight;
   boolean lossless;             /* True if lossless mode is enabled */
+
+  /* Gibbs-invariant guarded trellis routing (internal, cjpeg-only control) */
+  boolean gibbs_guarded_trellis; /* TRUE when cjpeg enables guarded routing */
+  double gibbs_threshold;        /* low-tail threshold on normalized AC ratio */
+  double gibbs_cliff_min;        /* minimum normalized cliff magnitude */
+  int gibbs_tail_min_flips;      /* minimum sign alternations in AC tail */
+  int gibbs_tail_activity_max;   /* maximum active AC tail coefficients */
+  int gibbs_low_trellis_loops;   /* loops to use when score is below threshold */
 };
 
 #ifdef C_ARITH_CODING_SUPPORTED

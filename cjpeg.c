@@ -34,8 +34,8 @@
 #define _CRT_SECURE_NO_DEPRECATE
 #endif
 
-#ifdef CJPEG_FUZZER
 #define JPEG_INTERNALS
+#ifdef CJPEG_FUZZER
 #endif
 #include "cdjpeg.h"             /* Common decls for cjpeg/djpeg applications */
 #include "jversion.h"           /* for version message */
@@ -170,6 +170,12 @@ static char *outfilename;       /* for -outfile switch */
 static boolean memdst;          /* for -memdst switch */
 static boolean report;          /* for -report switch */
 static boolean strict;          /* for -strict switch */
+static boolean gibbs_guarded_trellis; /* for -gibbs-mode guarded */
+static double gibbs_threshold;  /* for -gibbs-threshold */
+static double gibbs_cliff_min;  /* for -gibbs-cliff-min */
+static int gibbs_tail_min_flips; /* for -gibbs-tail-min-flips */
+static int gibbs_tail_activity_max; /* for -gibbs-tail-activity-max */
+static int gibbs_low_trellis_loops; /* for -gibbs-low-loops */
 
 
 #ifdef CJPEG_FUZZER
@@ -300,6 +306,12 @@ usage(void)
   fprintf(stderr, "  -memdst        Compress to memory instead of file (useful for benchmarking)\n");
   fprintf(stderr, "  -report        Report compression progress\n");
   fprintf(stderr, "  -strict        Treat all warnings as fatal\n");
+  fprintf(stderr, "  -gibbs-mode M  Experimental Gibbs routing mode: off|guarded (default off)\n");
+  fprintf(stderr, "  -gibbs-threshold T   Guard threshold on normalized AC tail ratio (default 0.18)\n");
+  fprintf(stderr, "  -gibbs-cliff-min T   Guard minimum normalized cliff magnitude (default 1.0)\n");
+  fprintf(stderr, "  -gibbs-tail-min-flips N   Guard minimum AC tail sign flips (default 2)\n");
+  fprintf(stderr, "  -gibbs-tail-activity-max N   Guard maximum active AC tail coeffs (default 3)\n");
+  fprintf(stderr, "  -gibbs-low-loops N   Reserved; currently only 0 is supported (default 0)\n");
   fprintf(stderr, "  -verbose  or  -debug   Emit debug output\n");
   fprintf(stderr, "  -version       Print version information and exit\n");
   fprintf(stderr, "Switches for wizards:\n");
@@ -311,7 +323,6 @@ usage(void)
 #endif
   exit(EXIT_FAILURE);
 }
-
 
 LOCAL(int)
 parse_switches(j_compress_ptr cinfo, int argc, char **argv,
@@ -352,7 +363,14 @@ parse_switches(j_compress_ptr cinfo, int argc, char **argv,
   memdst = FALSE;
   report = FALSE;
   strict = FALSE;
+  gibbs_guarded_trellis = FALSE;
+  gibbs_threshold = 0.18;
+  gibbs_cliff_min = 1.0;
+  gibbs_tail_min_flips = 2;
+  gibbs_tail_activity_max = 3;
+  gibbs_low_trellis_loops = 0;
   cinfo->err->trace_level = 0;
+  cinfo->master->gibbs_guarded_trellis = FALSE;
 
   /* Scan command line options, adjust parameters */
 
@@ -652,6 +670,91 @@ parse_switches(j_compress_ptr cinfo, int argc, char **argv,
     } else if (keymatch(arg, "strict", 2)) {
       strict = TRUE;
 
+    } else if (keymatch(arg, "gibbs-mode", 7)) {
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-mode\n", progname);
+        usage();
+      }
+      if (keymatch(argv[argn], "off", 3)) {
+        gibbs_guarded_trellis = FALSE;
+      } else if (keymatch(argv[argn], "guarded", 3)) {
+        gibbs_guarded_trellis = TRUE;
+      } else {
+        fprintf(stderr, "%s: invalid argument for gibbs-mode (expected off or guarded)\n",
+                progname);
+        usage();
+      }
+
+    } else if (keymatch(arg, "gibbs-threshold", 9)) {
+      double val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-threshold\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%lf%c", &val, &ch) != 1 || val < 0.0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-threshold\n", progname);
+        usage();
+      }
+      gibbs_threshold = val;
+
+    } else if (keymatch(arg, "gibbs-cliff-min", 9)) {
+      double val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-cliff-min\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%lf%c", &val, &ch) != 1 || val < 0.0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-cliff-min\n", progname);
+        usage();
+      }
+      gibbs_cliff_min = val;
+
+    } else if (keymatch(arg, "gibbs-tail-min-flips", 11)) {
+      int val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-tail-min-flips\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%d%c", &val, &ch) != 1 || val < 0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-tail-min-flips\n", progname);
+        usage();
+      }
+      gibbs_tail_min_flips = val;
+
+    } else if (keymatch(arg, "gibbs-tail-activity-max", 11)) {
+      int val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-tail-activity-max\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%d%c", &val, &ch) != 1 || val < 0 || val > 16) {
+        fprintf(stderr, "%s: invalid argument for gibbs-tail-activity-max\n", progname);
+        usage();
+      }
+      gibbs_tail_activity_max = val;
+
+    } else if (keymatch(arg, "gibbs-low-loops", 9)) {
+      int val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-low-loops\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%d%c", &val, &ch) != 1 || val < 0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-low-loops\n", progname);
+        usage();
+      }
+      gibbs_low_trellis_loops = val;
+
     } else if (keymatch(arg, "targa", 1)) {
       /* Input file is Targa format. */
       is_targa = TRUE;
@@ -715,6 +818,19 @@ parse_switches(j_compress_ptr cinfo, int argc, char **argv,
   }
 
   /* Post-switch-scanning cleanup */
+
+  if (gibbs_low_trellis_loops != 0) {
+    fprintf(stderr, "%s: gibbs-low-loops currently supports only 0 (disable guarded trellis work)\n",
+            progname);
+    usage();
+  }
+
+  cinfo->master->gibbs_guarded_trellis = gibbs_guarded_trellis;
+  cinfo->master->gibbs_threshold = gibbs_threshold;
+  cinfo->master->gibbs_cliff_min = gibbs_cliff_min;
+  cinfo->master->gibbs_tail_min_flips = gibbs_tail_min_flips;
+  cinfo->master->gibbs_tail_activity_max = gibbs_tail_activity_max;
+  cinfo->master->gibbs_low_trellis_loops = gibbs_low_trellis_loops;
 
   if (for_real) {
 

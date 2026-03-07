@@ -46,3 +46,8 @@ Makefile
 test_yuv*.jpg
 CMakeCache.txt
 CTestTestfile.cmake
+/build-baseline/
+/build-patched/
+/.worktrees/
+.idea/
+*.iml

@@ -734,7 +734,6 @@ pass_startup(j_compress_ptr cinfo)
   (*cinfo->marker->write_scan_header) (cinfo);
 }
 
-
 LOCAL(void)
 copy_buffer (j_compress_ptr cinfo, int scan_idx)
 {
@@ -1028,6 +1027,7 @@ finish_pass_master(j_compress_ptr cinfo)
   }
       }
     }
+
     break;
   }
 

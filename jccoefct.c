@@ -343,6 +343,7 @@ compress_first_pass(j_compress_ptr cinfo, _JSAMPIMAGE input_buf)
         }
       }
     }
+
   }
   /* NB: compress_output will increment iMCU_row_num if successful.
    * A suspension return will result in redoing all the work above next time.
@@ -365,6 +366,8 @@ compress_trellis_pass (j_compress_ptr cinfo, JSAMPIMAGE input_buf)
   JBLOCKARRAY buffer;
   JBLOCKROW thisblockrow, lastblockrow;
   JBLOCKARRAY buffer_dst;
+  JBLOCKROW srcblockrow;
+  JBLOCKROW srcblockrow_above;
 
   for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
     c_derived_tbl dctbl_data;
@@ -414,7 +417,7 @@ compress_trellis_pass (j_compress_ptr cinfo, JSAMPIMAGE input_buf)
     ndummy = (int) (blocks_across % h_samp_factor);
     if (ndummy > 0)
       ndummy = h_samp_factor - ndummy;
-    
+
     lastDC = 0;
 
     /* Perform DCT for all non-dummy blocks in this iMCU row.  Each call
@@ -423,23 +426,26 @@ compress_trellis_pass (j_compress_ptr cinfo, JSAMPIMAGE input_buf)
     for (block_row = 0; block_row < block_rows; block_row++) {
       thisblockrow = buffer[block_row];
       lastblockrow = (block_row > 0) ? buffer[block_row-1] : NULL;
+      srcblockrow = buffer_dst[block_row];
+      srcblockrow_above = (block_row > 0) ? buffer_dst[block_row-1] : NULL;
+
 #ifdef C_ARITH_CODING_SUPPORTED
       if (cinfo->arith_code)
-        quantize_trellis_arith(cinfo, arith_r, thisblockrow,
-                               buffer_dst[block_row], blocks_across,
+        quantize_trellis_arith(cinfo, arith_r, thisblockrow, srcblockrow,
+                               blocks_across,
                                cinfo->quant_tbl_ptrs[compptr->quant_tbl_no],
                                cinfo->master->norm_src[compptr->quant_tbl_no],
                                cinfo->master->norm_coef[compptr->quant_tbl_no],
-                               &lastDC, lastblockrow, buffer_dst[block_row-1]);
+                               &lastDC, lastblockrow, srcblockrow_above);
       else
 #endif
-        quantize_trellis(cinfo, dctbl, actbl, thisblockrow,
-                         buffer_dst[block_row], blocks_across,
+        quantize_trellis(cinfo, dctbl, actbl, thisblockrow, srcblockrow,
+                         blocks_across,
                          cinfo->quant_tbl_ptrs[compptr->quant_tbl_no],
                          cinfo->master->norm_src[compptr->quant_tbl_no],
                          cinfo->master->norm_coef[compptr->quant_tbl_no],
-                         &lastDC, lastblockrow, buffer_dst[block_row-1]);
-      
+                         &lastDC, lastblockrow, srcblockrow_above);
+
       if (ndummy > 0) {
         /* Create dummy blocks at the right edge of the image. */
         thisblockrow += blocks_across; /* => first dummy block */
@@ -474,6 +480,7 @@ compress_trellis_pass (j_compress_ptr cinfo, JSAMPIMAGE input_buf)
         }
       }
     }
+
   }
 
   /* NB: compress_output will increment iMCU_row_num if successful.
