@@ -51,3 +51,4 @@ CTestTestfile.cmake
 /.worktrees/
 .idea/
 *.iml
+build-local/

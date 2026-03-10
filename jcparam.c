@@ -518,11 +518,20 @@ jpeg_set_defaults(j_compress_ptr cinfo)
   cinfo->master->trellis_delta_dc_weight = 0.0;
 
   cinfo->master->gibbs_guarded_trellis = FALSE;
+  cinfo->master->gibbs_log_enabled = FALSE;
+  cinfo->master->gibbs_mode = 0;
   cinfo->master->gibbs_threshold = 0.18;
   cinfo->master->gibbs_cliff_min = 1.0;
   cinfo->master->gibbs_tail_min_flips = 2;
   cinfo->master->gibbs_tail_activity_max = 3;
   cinfo->master->gibbs_low_trellis_loops = 0;
+  cinfo->master->gibbs_trellis_passes_started = 0;
+  cinfo->master->gibbs_trellis_passes_completed = 0;
+  cinfo->master->gibbs_trellis_blocks_touched = 0;
+  cinfo->master->gibbs_blocks_analyzed = 0;
+  cinfo->master->gibbs_persistent_tail_blocks = 0;
+  cinfo->master->gibbs_r16_sum = 0.0;
+  cinfo->master->gibbs_r32_sum = 0.0;
 }
 
 

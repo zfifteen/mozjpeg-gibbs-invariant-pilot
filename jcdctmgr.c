@@ -1009,6 +1009,35 @@ gibbs_is_persistent_tail_block(j_compress_ptr cinfo, JBLOCKROW src,
          tail_activity <= cinfo->master->gibbs_tail_activity_max;
 }
 
+LOCAL(void)
+gibbs_collect_block_telemetry(j_compress_ptr cinfo, JBLOCKROW src,
+                              JBLOCKROW src_above, JDIMENSION num_blocks,
+                              JDIMENSION bi, JQUANT_TBL *qtbl)
+{
+  int k;
+  double r16 = 0.0;
+  double r32 = 0.0;
+
+  if (!cinfo->master->gibbs_log_enabled)
+    return;
+
+  for (k = 1; k <= 32; k++) {
+    int z = jpeg_natural_order[k];
+    int v = src[bi][z];
+    int av = (v < 0) ? -v : v;
+    if (k <= 16)
+      r16 += (double)av;
+    r32 += (double)av;
+  }
+
+  cinfo->master->gibbs_blocks_analyzed++;
+  cinfo->master->gibbs_r16_sum += r16;
+  cinfo->master->gibbs_r32_sum += r32;
+  if (gibbs_is_persistent_tail_block(cinfo, src, src_above, num_blocks, bi,
+                                     qtbl))
+    cinfo->master->gibbs_persistent_tail_blocks++;
+}
+
 #if BITS_IN_JSAMPLE == 8
 GLOBAL(void)
 quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actbl, JBLOCKROW coef_blocks, JBLOCKROW src, JDIMENSION num_blocks,
@@ -1120,6 +1149,12 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
     
     accumulated_zero_dist[Ss-1] = 0.0;
     accumulated_cost[Ss-1] = 0.0;
+
+    if (cinfo->master->gibbs_log_enabled) {
+      cinfo->master->gibbs_trellis_blocks_touched++;
+      gibbs_collect_block_telemetry(cinfo, src, src_above, num_blocks,
+                                    (JDIMENSION)bi, qtbl);
+    }
 
     /* Do DC coefficient */
     if (cinfo->master->trellis_quant_dc) {
@@ -1516,6 +1551,12 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
     
     accumulated_zero_dist[Ss-1] = 0.0;
     accumulated_cost[Ss-1] = 0.0;
+
+    if (cinfo->master->gibbs_log_enabled) {
+      cinfo->master->gibbs_trellis_blocks_touched++;
+      gibbs_collect_block_telemetry(cinfo, src, src_above, num_blocks,
+                                    (JDIMENSION)bi, qtbl);
+    }
     
     /* Do DC coefficient */
     if (cinfo->master->trellis_quant_dc) {

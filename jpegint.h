@@ -135,11 +135,20 @@ struct jpeg_comp_master {
 
   /* Gibbs-invariant guarded trellis routing (internal, cjpeg-only control) */
   boolean gibbs_guarded_trellis; /* TRUE when cjpeg enables guarded routing */
+  boolean gibbs_log_enabled;      /* TRUE when cjpeg should emit Gibbs telemetry */
+  int gibbs_mode;                 /* 0=off, 1=log-only, 2=guarded */
   double gibbs_threshold;        /* low-tail threshold on normalized AC ratio */
   double gibbs_cliff_min;        /* minimum normalized cliff magnitude */
   int gibbs_tail_min_flips;      /* minimum sign alternations in AC tail */
   int gibbs_tail_activity_max;   /* maximum active AC tail coefficients */
   int gibbs_low_trellis_loops;   /* loops to use when score is below threshold */
+  unsigned long gibbs_trellis_passes_started; /* trellis passes entered */
+  unsigned long gibbs_trellis_passes_completed; /* trellis passes finished */
+  unsigned long gibbs_trellis_blocks_touched; /* blocks quantized in trellis */
+  unsigned long gibbs_blocks_analyzed; /* blocks with R16/R32 aggregation */
+  unsigned long gibbs_persistent_tail_blocks; /* blocks meeting tail criterion */
+  double gibbs_r16_sum;          /* aggregate AC magnitude over zig-zag 1..16 */
+  double gibbs_r32_sum;          /* aggregate AC magnitude over zig-zag 1..32 */
 };
 
 #ifdef C_ARITH_CODING_SUPPORTED

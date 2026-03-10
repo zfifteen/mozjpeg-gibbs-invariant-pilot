@@ -684,6 +684,8 @@ prepare_for_pass(j_compress_ptr cinfo)
     master->pub.call_pass_startup = FALSE;
     break;
   case trellis_pass:
+    if (cinfo->master->gibbs_log_enabled)
+      cinfo->master->gibbs_trellis_passes_started++;
     if (master->pass_number %
         (cinfo->num_components * (cinfo->master->use_scans_in_trellis ? 4 : 2)) == 1 &&
         cinfo->master->trellis_q_opt) {
@@ -1005,6 +1007,8 @@ finish_pass_master(j_compress_ptr cinfo)
     master->scan_number++;
     break;
   case trellis_pass:
+    if (cinfo->master->gibbs_log_enabled)
+      cinfo->master->gibbs_trellis_passes_completed++;
     if (cinfo->optimize_coding)
       master->pass_type = huff_opt_pass;
     else
