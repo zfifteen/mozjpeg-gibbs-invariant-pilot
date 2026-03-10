@@ -1269,7 +1269,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         candidate_dist[k] = delta * delta * lambda * lambda_tbl[z];
       }
 
-      if (use_gibbs_ac_fast_path && i >= 9 && i <= 32 &&
+      if (use_gibbs_ac_fast_path && i >= 4 &&
           num_candidates > 1) {
         if (gibbs_persistent_tail_state < 0) {
           gibbs_persistent_tail_state =
@@ -1277,27 +1277,8 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
                                            (JDIMENSION)bi, qtbl) ? 1 : 0;
         }
         if (gibbs_persistent_tail_state > 0) {
-          int extra_candidate = qval + 1;
-          int max_candidate = (1 << max_coef_bits) - 1;
-          int has_extra = FALSE;
-
-          if (extra_candidate > max_candidate)
-            extra_candidate = max_candidate;
-
           for (k = 0; k < num_candidates; k++) {
-            if (candidate[k] == extra_candidate) {
-              has_extra = TRUE;
-              break;
-            }
-          }
-
-          if (!has_extra &&
-              num_candidates < (int)(sizeof(candidate) / sizeof(candidate[0]))) {
-            int delta = extra_candidate * q - x;
-            candidate[num_candidates] = extra_candidate;
-            candidate_bits[num_candidates] = JPEG_NBITS(extra_candidate);
-            candidate_dist[num_candidates] = delta * delta * lambda * lambda_tbl[z];
-            num_candidates++;
+            candidate_dist[k] *= 3.0f;
           }
         }
       }
@@ -1709,7 +1690,7 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
       }
       num_candidates = k;
 
-      if (use_gibbs_ac_fast_path && i >= 25 && i <= 32 &&
+      if (use_gibbs_ac_fast_path && i >= 4 &&
           num_candidates > 1) {
         if (gibbs_persistent_tail_state < 0) {
           gibbs_persistent_tail_state =
@@ -1717,26 +1698,8 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
                                            (JDIMENSION)bi, qtbl) ? 1 : 0;
         }
         if (gibbs_persistent_tail_state > 0) {
-          int extra_candidate = qval + 1;
-          int max_candidate = (1 << max_coef_bits) - 1;
-          int has_extra = FALSE;
-
-          if (extra_candidate > max_candidate)
-            extra_candidate = max_candidate;
-
           for (k = 0; k < num_candidates; k++) {
-            if (candidate[k] == extra_candidate) {
-              has_extra = TRUE;
-              break;
-            }
-          }
-
-          if (!has_extra &&
-              num_candidates < (int)(sizeof(candidate) / sizeof(candidate[0]))) {
-            delta = extra_candidate * q - x;
-            candidate[num_candidates] = extra_candidate;
-            candidate_dist[num_candidates] = delta * delta * lambda * lambda_tbl[z];
-            num_candidates++;
+            candidate_dist[k] *= 3.0f;
           }
         }
       }
