@@ -34,12 +34,13 @@
 #define _CRT_SECURE_NO_DEPRECATE
 #endif
 
-#ifdef CJPEG_FUZZER
 #define JPEG_INTERNALS
+#ifdef CJPEG_FUZZER
 #endif
 #include "cdjpeg.h"             /* Common decls for cjpeg/djpeg applications */
 #include "jversion.h"           /* for version message */
 #include "jconfigint.h"
+#include <time.h>
 
 
 /* Create the add-on message string table. */
@@ -170,6 +171,131 @@ static char *outfilename;       /* for -outfile switch */
 static boolean memdst;          /* for -memdst switch */
 static boolean report;          /* for -report switch */
 static boolean strict;          /* for -strict switch */
+typedef enum {
+  GIBBS_MODE_OFF = 0,
+  GIBBS_MODE_LOG_ONLY = 1,
+  GIBBS_MODE_GUARDED = 2
+} gibbs_mode_t;
+static gibbs_mode_t gibbs_mode; /* for -gibbs-mode */
+static char *gibbs_log_path;    /* for -gibbs-log */
+static double gibbs_threshold;  /* for -gibbs-threshold */
+static double gibbs_cliff_min;  /* for -gibbs-cliff-min */
+static int gibbs_tail_min_flips; /* for -gibbs-tail-min-flips */
+static int gibbs_tail_activity_max; /* for -gibbs-tail-activity-max */
+static int gibbs_low_trellis_loops; /* for -gibbs-low-loops */
+
+LOCAL(const char *)
+gibbs_mode_name(gibbs_mode_t mode)
+{
+  switch (mode) {
+  case GIBBS_MODE_LOG_ONLY:
+    return "log-only";
+  case GIBBS_MODE_GUARDED:
+    return "guarded";
+  case GIBBS_MODE_OFF:
+  default:
+    return "off";
+  }
+}
+
+LOCAL(void)
+json_print_escaped(FILE *fp, const char *value)
+{
+  const unsigned char *s = (const unsigned char *)(value != NULL ? value : "");
+  fputc('"', fp);
+  while (*s != '\0') {
+    switch (*s) {
+    case '"':
+      fputs("\\\"", fp);
+      break;
+    case '\\':
+      fputs("\\\\", fp);
+      break;
+    case '\b':
+      fputs("\\b", fp);
+      break;
+    case '\f':
+      fputs("\\f", fp);
+      break;
+    case '\n':
+      fputs("\\n", fp);
+      break;
+    case '\r':
+      fputs("\\r", fp);
+      break;
+    case '\t':
+      fputs("\\t", fp);
+      break;
+    default:
+      if (*s < 0x20)
+        fprintf(fp, "\\u%04x", (unsigned int)(*s));
+      else
+        fputc(*s, fp);
+      break;
+    }
+    s++;
+  }
+  fputc('"', fp);
+}
+
+LOCAL(void)
+emit_gibbs_log_record(j_compress_ptr cinfo, const char *input_name,
+                      const char *output_name, unsigned long output_bytes,
+                      double encode_ms)
+{
+  FILE *fp;
+  double r16;
+  double r32;
+  double tail;
+  double tail_ratio;
+
+  if (!cinfo->master->gibbs_log_enabled || gibbs_log_path == NULL)
+    return;
+
+  fp = fopen(gibbs_log_path, "ab");
+  if (fp == NULL) {
+    fprintf(stderr, "%s: can't append Gibbs log to %s\n", progname,
+            gibbs_log_path);
+    return;
+  }
+
+  r16 = cinfo->master->gibbs_r16_sum;
+  r32 = cinfo->master->gibbs_r32_sum;
+  tail = r32 - r16;
+  tail_ratio = (r16 > 0.0) ? (tail / (r16 + 1.0e-9)) : 0.0;
+
+  fputs("{\"schema\":\"mozjpeg-gibbs-log-v1\"", fp);
+  fputs(",\"mode\":\"", fp);
+  fputs(gibbs_mode_name((gibbs_mode_t)cinfo->master->gibbs_mode), fp);
+  fputc('"', fp);
+  fputs(",\"input\":", fp);
+  json_print_escaped(fp, input_name);
+  fputs(",\"output\":", fp);
+  json_print_escaped(fp, output_name);
+  fprintf(fp, ",\"encode_ms\":%.6f", encode_ms);
+  fprintf(fp, ",\"output_bytes\":%lu", output_bytes);
+  fprintf(fp, ",\"trellis_passes_started\":%lu",
+          cinfo->master->gibbs_trellis_passes_started);
+  fprintf(fp, ",\"trellis_passes_completed\":%lu",
+          cinfo->master->gibbs_trellis_passes_completed);
+  fprintf(fp, ",\"trellis_blocks_touched\":%lu",
+          cinfo->master->gibbs_trellis_blocks_touched);
+  fprintf(fp, ",\"blocks_analyzed\":%lu", cinfo->master->gibbs_blocks_analyzed);
+  fprintf(fp, ",\"persistent_tail_blocks\":%lu",
+          cinfo->master->gibbs_persistent_tail_blocks);
+  fprintf(fp, ",\"r16_sum\":%.6f", r16);
+  fprintf(fp, ",\"r32_sum\":%.6f", r32);
+  fprintf(fp, ",\"tail_sum\":%.6f", tail);
+  fprintf(fp, ",\"tail_ratio\":%.9f", tail_ratio);
+  fprintf(fp, ",\"threshold\":%.9f", cinfo->master->gibbs_threshold);
+  fprintf(fp, ",\"cliff_min\":%.9f", cinfo->master->gibbs_cliff_min);
+  fprintf(fp, ",\"tail_min_flips\":%d", cinfo->master->gibbs_tail_min_flips);
+  fprintf(fp, ",\"tail_activity_max\":%d",
+          cinfo->master->gibbs_tail_activity_max);
+  fputs("}\n", fp);
+
+  fclose(fp);
+}
 
 
 #ifdef CJPEG_FUZZER
@@ -300,6 +426,13 @@ usage(void)
   fprintf(stderr, "  -memdst        Compress to memory instead of file (useful for benchmarking)\n");
   fprintf(stderr, "  -report        Report compression progress\n");
   fprintf(stderr, "  -strict        Treat all warnings as fatal\n");
+  fprintf(stderr, "  -gibbs-mode M  Experimental Gibbs mode: off|log-only|guarded (default off)\n");
+  fprintf(stderr, "  -gibbs-log FILE  Append one JSONL telemetry record per encode\n");
+  fprintf(stderr, "  -gibbs-threshold T   Guard threshold on normalized AC tail ratio (default 0.18)\n");
+  fprintf(stderr, "  -gibbs-cliff-min T   Guard minimum normalized cliff magnitude (default 1.0)\n");
+  fprintf(stderr, "  -gibbs-tail-min-flips N   Guard minimum AC tail sign flips (default 2)\n");
+  fprintf(stderr, "  -gibbs-tail-activity-max N   Guard maximum active AC tail coeffs (default 3)\n");
+  fprintf(stderr, "  -gibbs-low-loops N   Reserved; currently only 0 is supported (default 0)\n");
   fprintf(stderr, "  -verbose  or  -debug   Emit debug output\n");
   fprintf(stderr, "  -version       Print version information and exit\n");
   fprintf(stderr, "Switches for wizards:\n");
@@ -311,7 +444,6 @@ usage(void)
 #endif
   exit(EXIT_FAILURE);
 }
-
 
 LOCAL(int)
 parse_switches(j_compress_ptr cinfo, int argc, char **argv,
@@ -352,7 +484,24 @@ parse_switches(j_compress_ptr cinfo, int argc, char **argv,
   memdst = FALSE;
   report = FALSE;
   strict = FALSE;
+  gibbs_mode = GIBBS_MODE_OFF;
+  gibbs_log_path = NULL;
+  gibbs_threshold = 0.18;
+  gibbs_cliff_min = 1.0;
+  gibbs_tail_min_flips = 2;
+  gibbs_tail_activity_max = 3;
+  gibbs_low_trellis_loops = 0;
   cinfo->err->trace_level = 0;
+  cinfo->master->gibbs_guarded_trellis = FALSE;
+  cinfo->master->gibbs_log_enabled = FALSE;
+  cinfo->master->gibbs_mode = GIBBS_MODE_OFF;
+  cinfo->master->gibbs_trellis_passes_started = 0;
+  cinfo->master->gibbs_trellis_passes_completed = 0;
+  cinfo->master->gibbs_trellis_blocks_touched = 0;
+  cinfo->master->gibbs_blocks_analyzed = 0;
+  cinfo->master->gibbs_persistent_tail_blocks = 0;
+  cinfo->master->gibbs_r16_sum = 0.0;
+  cinfo->master->gibbs_r32_sum = 0.0;
 
   /* Scan command line options, adjust parameters */
 
@@ -652,6 +801,100 @@ parse_switches(j_compress_ptr cinfo, int argc, char **argv,
     } else if (keymatch(arg, "strict", 2)) {
       strict = TRUE;
 
+    } else if (keymatch(arg, "gibbs-mode", 7)) {
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-mode\n", progname);
+        usage();
+      }
+      if (keymatch(argv[argn], "off", 3)) {
+        gibbs_mode = GIBBS_MODE_OFF;
+      } else if (keymatch(argv[argn], "log-only", 4)) {
+        gibbs_mode = GIBBS_MODE_LOG_ONLY;
+      } else if (keymatch(argv[argn], "guarded", 3)) {
+        gibbs_mode = GIBBS_MODE_GUARDED;
+      } else {
+        fprintf(stderr, "%s: invalid argument for gibbs-mode (expected off, log-only, or guarded)\n",
+                progname);
+        usage();
+      }
+
+    } else if (keymatch(arg, "gibbs-log", 9)) {
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-log\n", progname);
+        usage();
+      }
+      gibbs_log_path = argv[argn];
+
+    } else if (keymatch(arg, "gibbs-threshold", 9)) {
+      double val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-threshold\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%lf%c", &val, &ch) != 1 || val < 0.0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-threshold\n", progname);
+        usage();
+      }
+      gibbs_threshold = val;
+
+    } else if (keymatch(arg, "gibbs-cliff-min", 9)) {
+      double val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-cliff-min\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%lf%c", &val, &ch) != 1 || val < 0.0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-cliff-min\n", progname);
+        usage();
+      }
+      gibbs_cliff_min = val;
+
+    } else if (keymatch(arg, "gibbs-tail-min-flips", 11)) {
+      int val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-tail-min-flips\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%d%c", &val, &ch) != 1 || val < 0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-tail-min-flips\n", progname);
+        usage();
+      }
+      gibbs_tail_min_flips = val;
+
+    } else if (keymatch(arg, "gibbs-tail-activity-max", 11)) {
+      int val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-tail-activity-max\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%d%c", &val, &ch) != 1 || val < 0 || val > 16) {
+        fprintf(stderr, "%s: invalid argument for gibbs-tail-activity-max\n", progname);
+        usage();
+      }
+      gibbs_tail_activity_max = val;
+
+    } else if (keymatch(arg, "gibbs-low-loops", 9)) {
+      int val;
+      char ch = '\0';
+
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for gibbs-low-loops\n", progname);
+        usage();
+      }
+      if (sscanf(argv[argn], "%d%c", &val, &ch) != 1 || val < 0) {
+        fprintf(stderr, "%s: invalid argument for gibbs-low-loops\n", progname);
+        usage();
+      }
+      gibbs_low_trellis_loops = val;
+
     } else if (keymatch(arg, "targa", 1)) {
       /* Input file is Targa format. */
       is_targa = TRUE;
@@ -715,6 +958,34 @@ parse_switches(j_compress_ptr cinfo, int argc, char **argv,
   }
 
   /* Post-switch-scanning cleanup */
+
+  if (gibbs_low_trellis_loops != 0) {
+    fprintf(stderr, "%s: gibbs-low-loops currently supports only 0 (disable guarded trellis work)\n",
+            progname);
+    usage();
+  }
+
+  if (gibbs_log_path != NULL && gibbs_mode == GIBBS_MODE_OFF) {
+    fprintf(stderr, "%s: -gibbs-log requires -gibbs-mode log-only or guarded\n",
+            progname);
+    usage();
+  }
+
+  if (gibbs_mode == GIBBS_MODE_LOG_ONLY && gibbs_log_path == NULL) {
+    fprintf(stderr, "%s: -gibbs-mode log-only requires -gibbs-log <file>\n",
+            progname);
+    usage();
+  }
+
+  cinfo->master->gibbs_mode = gibbs_mode;
+  cinfo->master->gibbs_guarded_trellis = (gibbs_mode == GIBBS_MODE_GUARDED);
+  cinfo->master->gibbs_log_enabled =
+    (gibbs_log_path != NULL && gibbs_mode != GIBBS_MODE_OFF);
+  cinfo->master->gibbs_threshold = gibbs_threshold;
+  cinfo->master->gibbs_cliff_min = gibbs_cliff_min;
+  cinfo->master->gibbs_tail_min_flips = gibbs_tail_min_flips;
+  cinfo->master->gibbs_tail_activity_max = gibbs_tail_activity_max;
+  cinfo->master->gibbs_low_trellis_loops = gibbs_low_trellis_loops;
 
   if (for_real) {
 
@@ -803,6 +1074,11 @@ main(int argc, char **argv)
   unsigned char *outbuffer = NULL;
   unsigned long outsize = 0;
   JDIMENSION num_scanlines;
+  const char *input_name = "<stdin>";
+  const char *output_name = "<stdout>";
+  unsigned long gibbs_output_bytes = 0;
+  clock_t encode_clock_start = 0;
+  double encode_ms = 0.0;
 
   progname = argv[0];
   if (progname == NULL || progname[0] == 0)
@@ -864,6 +1140,7 @@ main(int argc, char **argv)
 
   /* Open the input file. */
   if (file_index < argc) {
+    input_name = argv[file_index];
     if ((input_file = fopen(argv[file_index], READ_BINARY)) == NULL) {
       fprintf(stderr, "%s: can't open %s\n", progname, argv[file_index]);
       exit(EXIT_FAILURE);
@@ -875,12 +1152,16 @@ main(int argc, char **argv)
 
   /* Open the output file. */
   if (outfilename != NULL) {
+    output_name = outfilename;
     if ((output_file = fopen(outfilename, WRITE_BINARY)) == NULL) {
       fprintf(stderr, "%s: can't open %s\n", progname, outfilename);
       exit(EXIT_FAILURE);
     }
+  } else if (memdst) {
+    output_name = "<memdst>";
   } else if (!memdst) {
     /* default output file is stdout */
+    output_name = "<stdout>";
     output_file = write_stdout();
   }
 
@@ -954,6 +1235,7 @@ main(int argc, char **argv)
 #endif
 
   /* Start compressor */
+  encode_clock_start = clock();
   jpeg_start_compress(&cinfo, TRUE);
 
   /* Copy metadata */
@@ -1021,6 +1303,21 @@ main(int argc, char **argv)
   /* Finish compression and release memory */
   (*src_mgr->finish_input) (&cinfo, src_mgr);
   jpeg_finish_compress(&cinfo);
+  if (encode_clock_start != 0)
+    encode_ms = ((double)(clock() - encode_clock_start) * 1000.0) /
+                (double)CLOCKS_PER_SEC;
+  if (memdst) {
+    gibbs_output_bytes = outsize;
+  } else if (output_file != NULL && output_file != stdout) {
+    long fsize;
+    if (fflush(output_file) == 0) {
+      fsize = ftell(output_file);
+      if (fsize >= 0)
+        gibbs_output_bytes = (unsigned long)fsize;
+    }
+  }
+  emit_gibbs_log_record(&cinfo, input_name, output_name, gibbs_output_bytes,
+                        encode_ms);
   jpeg_destroy_compress(&cinfo);
 
   /* Close files, if we opened them */

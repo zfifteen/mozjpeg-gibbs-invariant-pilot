@@ -1,0 +1,19 @@
+# Generated benchmark artifacts
+bin/cjpeg_A_baseline
+bin/cjpeg_B1_logonly
+bin/SHA256SUMS.txt
+data/
+results/*
+!results/.gitkeep
+manifests/dev.txt
+manifests/test.txt
+manifests/stress.txt
+manifests/dataset_summary.txt
+manifests/build_manifest.json
+manifests/*_smoke.txt
+manifests/local_*.txt
+manifests/large_*.txt
+scripts/__pycache__/
+scripts/*.pyc
+results/smoke/
+.worktrees/
