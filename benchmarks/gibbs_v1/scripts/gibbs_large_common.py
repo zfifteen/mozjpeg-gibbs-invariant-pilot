@@ -199,6 +199,7 @@ def compare_off_vs_guarded(rows):
     metrics = {
         "runtime_delta_median_pct": median(runtime_deltas),
         "runtime_delta_p95_pct": p95(runtime_deltas),
+        "size_delta_median_pct": median(size_deltas),
         "size_delta_mean_pct": mean(size_deltas),
         "size_delta_p95_pct": p95(size_deltas),
         "num_images": len(per_image),

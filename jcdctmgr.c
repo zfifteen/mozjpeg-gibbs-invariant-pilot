@@ -1277,10 +1277,28 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
                                            (JDIMENSION)bi, qtbl) ? 1 : 0;
         }
         if (gibbs_persistent_tail_state > 0) {
-          candidate[0] = candidate[num_candidates - 1];
-          candidate_bits[0] = candidate_bits[num_candidates - 1];
-          candidate_dist[0] = candidate_dist[num_candidates - 1];
-          num_candidates = 1;
+          int extra_candidate = qval + 1;
+          int max_candidate = (1 << max_coef_bits) - 1;
+          int has_extra = FALSE;
+
+          if (extra_candidate > max_candidate)
+            extra_candidate = max_candidate;
+
+          for (k = 0; k < num_candidates; k++) {
+            if (candidate[k] == extra_candidate) {
+              has_extra = TRUE;
+              break;
+            }
+          }
+
+          if (!has_extra &&
+              num_candidates < (int)(sizeof(candidate) / sizeof(candidate[0]))) {
+            int delta = extra_candidate * q - x;
+            candidate[num_candidates] = extra_candidate;
+            candidate_bits[num_candidates] = JPEG_NBITS(extra_candidate);
+            candidate_dist[num_candidates] = delta * delta * lambda * lambda_tbl[z];
+            num_candidates++;
+          }
         }
       }
       
@@ -1474,6 +1492,7 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
   int bi;
   float best_cost;
   int last_coeff_idx; /* position of last nonzero coefficient */
+  const int max_coef_bits = cinfo->data_precision + 2;
   float norm = 0.0;
   float lambda_base;
   float lambda;
@@ -1698,9 +1717,27 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
                                            (JDIMENSION)bi, qtbl) ? 1 : 0;
         }
         if (gibbs_persistent_tail_state > 0) {
-          candidate[0] = candidate[num_candidates - 1];
-          candidate_dist[0] = candidate_dist[num_candidates - 1];
-          num_candidates = 1;
+          int extra_candidate = qval + 1;
+          int max_candidate = (1 << max_coef_bits) - 1;
+          int has_extra = FALSE;
+
+          if (extra_candidate > max_candidate)
+            extra_candidate = max_candidate;
+
+          for (k = 0; k < num_candidates; k++) {
+            if (candidate[k] == extra_candidate) {
+              has_extra = TRUE;
+              break;
+            }
+          }
+
+          if (!has_extra &&
+              num_candidates < (int)(sizeof(candidate) / sizeof(candidate[0]))) {
+            delta = extra_candidate * q - x;
+            candidate[num_candidates] = extra_candidate;
+            candidate_dist[num_candidates] = delta * delta * lambda * lambda_tbl[z];
+            num_candidates++;
+          }
         }
       }
       

@@ -1207,6 +1207,7 @@ def run_stage_c(args) -> pathlib.Path:
     acceptance = {
         "runtime_median_improvement_ge_3pct": False,
         "runtime_p95_delta_le_1pct": False,
+        "size_median_delta_le_0pct_hard": False,
         "size_mean_delta_le_0_20pct": False,
         "size_p95_delta_le_0_50pct": False,
         "decode_failures_zero": False,
@@ -1216,6 +1217,13 @@ def run_stage_c(args) -> pathlib.Path:
     if feasible:
         metrics, per_image = compare_off_vs_policy(rows)
         acceptance = evaluate_acceptance(metrics, decode_failures=len(decode_failures))
+        size_med = metrics.get("size_delta_median_pct")
+        acceptance["size_median_delta_le_0pct_hard"] = (
+            size_med is not None and size_med <= 0.0
+        )
+        acceptance["all_pass"] = (
+            acceptance["all_pass"] and acceptance["size_median_delta_le_0pct_hard"]
+        )
 
     write_rows_csv(
         out_dir / "rows.csv",
