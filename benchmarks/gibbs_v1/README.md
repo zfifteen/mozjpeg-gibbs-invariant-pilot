@@ -121,3 +121,40 @@ python3 benchmarks/gibbs_v1/scripts/sweep_large_ab.py \
   --tail-activity-maxes 2,3,4 \
   --results-dir benchmarks/gibbs_v1/results
 ```
+
+
+## Restart Protocol v6 (Pinned)
+
+Use the implemented v6 runner for stage-gated execution with frozen `tau_B` / `tau_C`:
+
+```bash
+python3 benchmarks/gibbs_v1/scripts/run_protocol_v6.py stage-b \
+  --bin /Users/velocityworks/IdeaProjects/mozjpeg/build-patched/cjpeg \
+  --manifest benchmarks/gibbs_v1/manifests/local_stress.txt \
+  --quality 85 \
+  --results-dir benchmarks/gibbs_v1/results
+
+python3 benchmarks/gibbs_v1/scripts/run_protocol_v6.py stage-c \
+  --bin /Users/velocityworks/IdeaProjects/mozjpeg/build-patched/cjpeg \
+  --djpeg /Users/velocityworks/IdeaProjects/mozjpeg/build-patched/djpeg \
+  --b-summary benchmarks/gibbs_v1/results/<b_tag>/summary.json \
+  --benchmark-manifest benchmarks/gibbs_v1/manifests/large_mixed.txt \
+  --quality 85 \
+  --repeats 7 \
+  --results-dir benchmarks/gibbs_v1/results
+```
+
+Or run B then C in one command:
+
+```bash
+python3 benchmarks/gibbs_v1/scripts/run_protocol_v6.py run-all \
+  --bin /Users/velocityworks/IdeaProjects/mozjpeg/build-patched/cjpeg \
+  --djpeg /Users/velocityworks/IdeaProjects/mozjpeg/build-patched/djpeg \
+  --b-manifest benchmarks/gibbs_v1/manifests/local_stress.txt \
+  --c-manifest benchmarks/gibbs_v1/manifests/large_mixed.txt \
+  --quality 85 \
+  --repeats 7 \
+  --results-dir benchmarks/gibbs_v1/results
+```
+
+See `RESTART_IMPLEMENTATION_PLAN.md` for the pinned protocol contract and acceptance rules.
